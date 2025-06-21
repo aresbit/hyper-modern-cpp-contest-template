@@ -1,0 +1,59 @@
+name: Hyper-Modern CPP Build & Benchmark
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-24.04
+    container:
+      image: ghcr.io/llvm/ubuntu-24.04:llvm-18
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install GCC 14
+      run: |
+        sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+        sudo apt-get update
+        sudo apt-get install -y gcc-14 g++-14
+
+    - name: Set compiler alternatives
+      run: |
+        sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 100
+        sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 100
+        sudo update-alternatives --install /usr/bin/gcov gcov /usr/bin/gcov-14 100
+
+    - name: Build project
+      run: |
+        chmod +x scripts/build.sh
+        ./scripts/build.sh
+
+    - name: Run solver test
+      run: |
+        echo "5" > input.txt
+        echo "1 2 3 4 5" >> input.txt
+        ./bin/solver < input.txt
+
+    - name: Run performance benchmark
+      run: |
+        # 生成10^7规模测试数据
+        seq 10000000 > benchmark_data.txt
+        ./bin/benchmark < benchmark_data.txt | tee benchmark.log
+
+    - name: Upload benchmark results
+      uses: actions/upload-artifact@v3
+      with:
+        name: benchmark-report
+        path: benchmark.log
+
+    - name: Check I/O throughput
+      run: |
+        THROUGHPUT=$(grep "I/O Throughput" benchmark.log | awk '{print $4}')
+        if (( $(echo "$THROUGHPUT < 400" | bc -l) )); then
+          echo "::error::I/O性能下降! 当前吞吐量: ${THROUGHPUT} MB/s"
+          exit 1
+        fi
